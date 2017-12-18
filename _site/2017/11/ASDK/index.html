@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  <title>ASDK源码剖析</title>
+  <meta name="description" content="ASDisplayNode类层次结构图ASDisplayNode是整个AsyncDisplayKit的基石，它是ASDK页面异步渲染的核心。如图是ASDisplayNode的类层次图，可以看到常用的一些控件都是从ASDisplayNode继承而来。接下来我们重点分析下ASDisplay的工作原理。">
+  <meta name="author" content="leopardpan">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="ASDK源码剖析">
+  <meta name="twitter:description" content="ASDisplayNode类层次结构图ASDisplayNode是整个AsyncDisplayKit的基石，它是ASDK页面异步渲染的核心。如图是ASDisplayNode的类层次图，可以看到常用的一些控件都是从ASDisplayNode继承而来。接下来我们重点分析下ASDisplay的工作原理。">
+  
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="ASDK源码剖析">
+  <meta property="og:description" content="ASDisplayNode类层次结构图ASDisplayNode是整个AsyncDisplayKit的基石，它是ASDK页面异步渲染的核心。如图是ASDisplayNode的类层次图，可以看到常用的一些控件都是从ASDisplayNode继承而来。接下来我们重点分析下ASDisplay的工作原理。">
+  
+  <link rel="icon" type="image/png" href="/images/favicon.png" />
+  <link href="/images/favicon.png" rel="shortcut icon" type="image/png">
+  
+  <link rel="stylesheet" href="/css/main.css">
+  <link href="//netdna.bootstrapcdn.com/font-awesome/4.1.0/css/font-awesome.min.css" rel="stylesheet">
+
+  <link rel="canonical" href="http://localhost:4000/2017/11/ASDK/">
+  <link rel="alternate" type="application/rss+xml" title="sunshinelww" href="http://localhost:4000/feed.xml">
+  
+  <meta name="google-site-verification" content="1-1ZlHoRvM0T2FqPbW2S-qLgYXN6rsn52kErlMPd_gw" />
+
+<!-- 站点统计 -->
+  <script 
+  async src="//dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js">
+  </script>  
+
+<!-- 百度统计 -->
+  
+
+<!-- google 统计 -->
+  
+
+  <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<script>
+  (adsbygoogle = window.adsbygoogle || []).push({
+    google_ad_client: "ca-pub-9005224472374751",
+    enable_page_level_ads: true
+  });
+</script>
+
+</head>
+
+
+  <body>
+
+    <span class="mobile btn-mobile-menu">        
+      <div class="nav_container">
+         <nav class="nav-menu-item" style = "float:right">
+            <i class="nav-menu-item">
+              <a href="/#blog" title="Visit blog" class="blog-button">  博客
+              </a>
+            </i>
+            
+                <i class="nav-menu-item">
+
+                  <a href="https://github.com/sunshinelww" title="My Projects" class="btn-mobile-menu__icon">
+                      github
+                  </a>
+                </i>
+            
+          </nav>
+      </div>
+    </span>
+    
+    <header class="panel-cover panel-cover--collapsed" style="background-image: url('/images/background-cover.jpg')">
+  <div class="panel-main">
+
+    <div class="panel-main__inner panel-inverted">
+    <div class="panel-main__content">
+        <!-- 头像效果-start -->
+        <div class="ih-item circle effect right_to_left">            
+            <a href="/#blog" title="前往 sunshinelww 的主页" class="blog-button">
+                <div class="img"><img src="/images/avatar.jpg" alt="img"></div>
+                <div class="info">
+                    <div class="info-back">
+                        <h2> 
+                            
+                        </h2>
+                        <p>
+                           
+                        </p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <!-- 头像效果-end -->
+        <h1 class="panel-cover__title panel-title"><a href="/#blog" title="link to homepage for sunshinelww" class="blog-button">sunshinelww</a></h1>
+        
+        <span class="panel-cover__subtitle panel-subtitle">执着的程序员.</span>
+        
+        <hr class="panel-cover__divider" />
+        <p class="panel-cover__description">要有最朴素的生活和最遥远的梦想，即使明日天寒地冻、路遥马亡 .</p>
+        <hr class="panel-cover__divider panel-cover__divider--secondary" />
+        
+        
+        
+
+        <div class="navigation-wrapper">
+          <div>
+            <nav class="cover-navigation cover-navigation--primary">
+              <ul class="navigation">
+                <li class="navigation__item"><a href="/#blog" title="Visit blog" class="blog-button">博客</a></li>
+                
+                  <li class="navigation__item"><a href="https://github.com/sunshinelww" title="My Projects">github</a></li>
+                
+              </ul>
+            </nav>
+          </div>          
+        </div>
+
+
+        </div>
+      </div>
+    </div>
+    
+    
+    <div class="panel-cover--overlay cover-slate"></div>
+    
+  </div>
+</header>
+
+
+    <div class="content-wrapper">
+        <div class="content-wrapper__inner">
+            <article class="post-container post-container--single" itemscope itemtype="http://schema.org/BlogPosting">
+  <header class="post-header">
+    <h1 class="post-title">ASDK源码剖析</h1>
+    <div class="post-meta">
+      <img src="/images/calendar.png" width="20px"/> 
+      <time datetime="2017-11-14 00:00:00 +0800" itemprop="datePublished" class="post-meta__date date">2017-11-14</time>  
+         
+      <span id="busuanzi_container_page_pv"> | 阅读：<span id="busuanzi_value_page_pv"></span>次</span>
+    </p>
+    </div>
+  </header>
+
+  <section class="post">
+    <p>ASDisplayNode类层次结构图
+ASDisplayNode是整个AsyncDisplayKit的基石，它是ASDK页面异步渲染的核心。如图是ASDisplayNode的类层次图，可以看到常用的一些控件都是从ASDisplayNode继承而来。接下来我们重点分析下ASDisplay的工作原理。
+<img src="http://upload-images.jianshu.io/upload_images/4297538-f58985a1dc158b40.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240" alt="ASDisplayNode类层次图.png" /></p>
+
+<p>ASDisplayNode
+首先我们看下官方的解释</p>
+
+<blockquote>
+  <p>An <code class="highlighter-rouge">ASDisplayNode</code> is an abstraction over <code class="highlighter-rouge">UIView</code> and <code class="highlighter-rouge">CALayer</code> that allows you to perform calculations about a view hierarchy off the main thread, and could do rendering off the main thread as well.</p>
+</blockquote>
+
+<blockquote>
+  <p>大致的意思是：<code class="highlighter-rouge">ASDisplayNode</code>是<code class="highlighter-rouge">UIView</code>和<code class="highlighter-rouge">CALayer</code>的抽象，它能够实现不在主线程执行视图的层次计算和渲染布局</p>
+</blockquote>
+
+<p>很明显<code class="highlighter-rouge">ASDisplayNode</code>的强大之处在于充分利用后台线程来完成复杂的布局和渲染，通常UIKit的创建、布局计算和渲染绘制都集中在主线程，这增大了主线程的压力从而导致当APP视图过于庞大和复杂时，出现卡顿现象。
+<code class="highlighter-rouge">ASDisplayNode</code>渲染时序图如下，我们可以看到绘制的入口是CALayer的display方法。我们来看下官网对display方法的解释：</p>
+<blockquote>
+  <p>Do not call this method directly. The layer calls this method at appropriate times to update the layer’s content. If the layer has a delegate object, this method attempts to call the delegate’s  <a href="https://developer.apple.com/documentation/quartzcore/calayerdelegate/2097261-displaylayer?language=objc"><code class="highlighter-rouge">displayLayer:</code></a>  method, which the delegate can use to update the layer’s contents. If the delegate does not implement the  <a href="https://developer.apple.com/documentation/quartzcore/calayerdelegate/2097261-displaylayer?language=objc"><code class="highlighter-rouge">displayLayer:</code></a>  method, this method creates a backing store and calls the layer’s  <a href="https://developer.apple.com/documentation/quartzcore/calayer/1410757-drawincontext?language=objc"><code class="highlighter-rouge">drawInContext:</code></a>  method to fill that backing store with content. The new backing store replaces the previous contents of the layer.</p>
+</blockquote>
+
+<blockquote>
+  <p>大意是：<code class="highlighter-rouge">display</code>方法由系统调用，用来更新layer的内容，如果layer有delegate对象，那么display方法将尝试调用delegate的<code class="highlighter-rouge">displayLayer:</code>方法来更新layer的内容。如果delegate没有实现<code class="highlighter-rouge">displayLayer:</code>方法，则这个方法会创建一个backing store ,然后调用layer的<code class="highlighter-rouge">drawInContext</code>方法来填充back store。最后以新的backing store替换layer的先前的内容达到更新layer的目的。通常UIKit中<code class="highlighter-rouge">CALayer</code>的<code class="highlighter-rouge">delegate</code>是<code class="highlighter-rouge">UIView</code>对象。</p>
+</blockquote>
+
+<p><img src="http://upload-images.jianshu.io/upload_images/4297538-80ff774ce66911c9.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240" alt="ASDisplayNode渲染时序图" /></p>
+
+<p>  <code class="highlighter-rouge">_ASDisplayLayer</code>通过重写了<code class="highlighter-rouge">CALayer</code>的<code class="highlighter-rouge">display</code>方法来自定义CALayer的content属性。<code class="highlighter-rouge">_ASDisplayLayer</code>与<code class="highlighter-rouge">ASDisplayNode</code>的关系类似于<code class="highlighter-rouge">CALayer</code>与<code class="highlighter-rouge">UIView</code>的关系。ASDK所有视图的layer的实现均采用<code class="highlighter-rouge">_ASDisplayLayer</code>。因此<code class="highlighter-rouge">_ASDisplayLayer</code>是绘制的起点。下面我们来仔细分析视图绘制的流程。</p>
+
+<p>首先<code class="highlighter-rouge">_ASDisplayLayer</code>会将绘制的事件传递给<code class="highlighter-rouge">ASDisplayNode</code>,入口函数代码如下：</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>//ASDisplayNode的异步绘制入口
+- (void)displayAsyncLayer:(_ASDisplayLayer *)asyncLayer asynchronously:(BOOL)asynchronously
+{
+  ...
+  __instanceLock__.lock();
+  
+  if (_hierarchyState &amp; ASHierarchyStateRasterized) {
+    __instanceLock__.unlock();
+    return;
+  }
+  
+  CALayer *layer = _layer;
+  BOOL rasterizesSubtree = _flags.rasterizesSubtree;
+  
+  __instanceLock__.unlock();
+
+  // for async display, capture the current displaySentinel value to bail early when the job is executed if another is
+  // enqueued
+  // for sync display, do not support cancellation
+  
+  asdisplaynode_iscancelled_block_t isCancelledBlock = nil;
+  if (asynchronously) {
+    uint displaySentinelValue = ++_displaySentinel;
+    __weak ASDisplayNode *weakSelf = self;
+    isCancelledBlock = ^BOOL{
+      __strong ASDisplayNode *self = weakSelf;
+      return self == nil || (displaySentinelValue != self-&gt;_displaySentinel.load());
+    };
+  } else {
+    isCancelledBlock = ^BOOL{
+      return NO;
+    };
+  }
+
+  // 步骤1.
+  asyncdisplaykit_async_transaction_operation_block_t displayBlock = [self _displayBlockWithAsynchronous:asynchronously isCancelledBlock:isCancelledBlock rasterizing:NO];
+  
+  if (!displayBlock) {
+    return;
+  }
+  
+  ASDisplayNodeAssert(layer, @"Expect _layer to be not nil");
+
+  //步骤2. 渲染完成后的回调
+  asyncdisplaykit_async_transaction_operation_completion_block_t completionBlock = ^(id&lt;NSObject&gt; value, BOOL canceled){
+    ASDisplayNodeCAssertMainThread();
+    if (!canceled &amp;&amp; !isCancelledBlock()) {
+      UIImage *image = (UIImage *)value;
+      BOOL stretchable = (NO == UIEdgeInsetsEqualToEdgeInsets(image.capInsets, UIEdgeInsetsZero));
+      if (stretchable) {
+        ASDisplayNodeSetResizableContents(layer, image);
+      } else {
+        layer.contentsScale = self.contentsScale;
+        layer.contents = (id)image.CGImage;
+      }
+      [self didDisplayAsyncLayer:self.asyncLayer];
+      
+      if (rasterizesSubtree) { //如果对子类进行了栅格化，则负责调用子类的完成显示函数
+        ASDisplayNodePerformBlockOnEverySubnode(self, NO, ^(ASDisplayNode * _Nonnull node) {
+          [node didDisplayAsyncLayer:node.asyncLayer];
+        });
+      }
+    }
+  };
+
+  // Call willDisplay immediately in either case
+  [self willDisplayAsyncLayer:self.asyncLayer asynchronously:asynchronously];
+  
+  if (rasterizesSubtree) { //提前调用子节点栅格化的即将显示函数
+    ASDisplayNodePerformBlockOnEverySubnode(self, NO, ^(ASDisplayNode * _Nonnull node) {
+      [node willDisplayAsyncLayer:node.asyncLayer asynchronously:asynchronously];
+    });
+  }
+   //步骤3
+    if (asynchronously) {
+        //将结果的最终应用程序同步到layer的contents属性
+        //首先向上遍历superlayer链，直到找到第一个layer的asyncdisplaykit_isAsyncTransactionContainer属性为YES;
+        CALayer *containerLayer = layer.asyncdisplaykit_parentTransactionContainer ? : layer;
+        
+        //在transaction尚且不存在的情况下（例如容器外一个单独的node）,这个调用会allocate transaction，然后添加到_ASAsyncTransactionGroup
+        //并且transaction在runloop的末尾会被自动提交
+        _ASAsyncTransaction *transaction = containerLayer.asyncdisplaykit_asyncTransaction;
+        
+        // Adding this displayBlock operation to the transaction will start it IMMEDIATELY.
+        // The only function of the transaction commit is to gate the calling of the completionBlock.
+        [transaction addOperationWithBlock:displayBlock priority:self.drawingPriority queue:[_ASDisplayLayer displayQueue] completion:completionBlock];
+    } else {
+    UIImage *contents = (UIImage *)displayBlock();
+    completionBlock(contents, NO);
+  }
+}
+
+</code></pre>
+</div>
+<p>代码主要流程是：</p>
+
+<ol>
+  <li>获取node的displayBlock,也就是负责根据node的视图层级得到需要显示的内容的绘制任务</li>
+  <li>生成node绘制完成后的回调block</li>
+  <li>根据<code class="highlighter-rouge">displaysAsynchronously</code>属性来判断是否需要异步展示，如果是异步的，则将displayBlock提交至_ASAsyncTransaction中，否则立即执行displayBlock.</li>
+</ol>
+
+<p>这里出现了<code class="highlighter-rouge">_ASAsyncTransaction</code>这个类，可以看到异步绘制的block由_ASAsyncTransaction来进行调度。我们可以分析<code class="highlighter-rouge">_ASAsyncTransaction</code>怎么调度displayBlock的。
+首先我们看下_ASAsyncTransaction的创建代码：</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>- (_ASAsyncTransaction *)asyncdisplaykit_asyncTransaction
+{
+  _ASAsyncTransaction *transaction = self.asyncdisplaykit_currentAsyncTransaction;
+  if (transaction == nil) {
+    NSHashTable *transactions = self.asyncdisplaykit_asyncLayerTransactions;
+    if (transactions == nil) { //初始化transactions，
+      transactions = [NSHashTable hashTableWithOptions:NSHashTableObjectPointerPersonality];
+      self.asyncdisplaykit_asyncLayerTransactions = transactions;
+    }
+    __weak CALayer *weakSelf = self;
+    transaction = [[_ASAsyncTransaction alloc] initWithCompletionBlock:^(_ASAsyncTransaction *completedTransaction, BOOL cancelled) {
+      __strong CALayer *self = weakSelf;
+      if (self == nil) {
+        return;
+      }
+      [transactions removeObject:completedTransaction];
+      [self asyncdisplaykit_asyncTransactionContainerDidCompleteTransaction:completedTransaction];
+    }];
+    [transactions addObject:transaction];//生成transaction并添加至transactions中
+    self.asyncdisplaykit_currentAsyncTransaction = transaction;
+    [self asyncdisplaykit_asyncTransactionContainerWillBeginTransaction:transaction];
+  }
+  [[_ASAsyncTransactionGroup mainTransactionGroup] addTransactionContainer:self];
+  return transaction;
+}
+</code></pre>
+</div>
+<p>可以看到transaction由transactions管理，transactions是与<code class="highlighter-rouge">CALayer</code>的生命周期绑定的。transaction在任务完成后会被释放掉，这里出现了一个<code class="highlighter-rouge">transactionContainer</code>的概念，<code class="highlighter-rouge">transactionContainer</code>本质就是<code class="highlighter-rouge">CALayer</code>,它通过持有transactions来管理transaction,layer的绘制block优先会添加至asyncTransactionContainer为YES的superLayer的transaction中，这个可以进行配置。如果沿着superlayer链找不到transactionContainer，则自己创建transaction。然后添加绘制block,由自己进行调度。</p>
+
+<p>至此我们还看不到transaction对displayBlock的调度。接下来我们看下displayBlock被添加入到transaction的操作，代码如下：</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code><span class="k">@implementation</span> <span class="nc">_ASAsyncTransaction</span>
+<span class="p">{</span>
+  <span class="n">ASAsyncTransactionQueue</span><span class="o">::</span><span class="n">Group</span> <span class="o">*</span><span class="n">_group</span><span class="p">;</span>
+  <span class="n">NSMutableArray</span><span class="o">&lt;</span><span class="n">ASAsyncTransactionOperation</span> <span class="o">*&gt;</span> <span class="o">*</span><span class="n">_operations</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="p">...</span>
+<span class="o">-</span> <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">addOperationWithBlock</span><span class="o">:</span><span class="p">(</span><span class="n">asyncdisplaykit_async_transaction_operation_block_t</span><span class="p">)</span><span class="n">block</span>
+                     <span class="n">priority</span><span class="o">:</span><span class="p">(</span><span class="n">NSInteger</span><span class="p">)</span><span class="n">priority</span>
+                        <span class="n">queue</span><span class="o">:</span><span class="p">(</span><span class="n">dispatch_queue_t</span><span class="p">)</span><span class="n">queue</span>
+                   <span class="n">completion</span><span class="o">:</span><span class="p">(</span><span class="n">asyncdisplaykit_async_transaction_operation_completion_block_t</span><span class="p">)</span><span class="n">completion</span>
+<span class="p">{</span>
+  <span class="n">ASAsyncTransactionAssertMainThread</span><span class="p">();</span>
+  <span class="n">NSAssert</span><span class="p">(</span><span class="n">self</span><span class="p">.</span><span class="n">state</span> <span class="o">==</span> <span class="n">ASAsyncTransactionStateOpen</span><span class="p">,</span> <span class="s">@"You can only add operations to open transactions"</span><span class="p">);</span>
+
+  <span class="p">[</span><span class="n">self</span> <span class="nf">_ensureTransactionData</span><span class="p">];</span>
+
+  <span class="n">ASAsyncTransactionOperation</span> <span class="o">*</span><span class="n">operation</span> <span class="o">=</span> <span class="p">[[</span><span class="n">ASAsyncTransactionOperation</span> <span class="nf">alloc</span><span class="p">]</span> <span class="nf">initWithOperationCompletionBlock</span><span class="p">:</span><span class="n">completion</span><span class="p">];</span>
+  <span class="p">[</span><span class="n">_operations</span> <span class="nf">addObject</span><span class="p">:</span><span class="n">operation</span><span class="p">];</span>
+  <span class="n">_group</span><span class="o">-&gt;</span><span class="n">schedule</span><span class="p">(</span><span class="n">priority</span><span class="p">,</span> <span class="n">queue</span><span class="p">,</span> <span class="o">^</span><span class="p">{</span>
+    <span class="err">@autoreleasepool</span> <span class="p">{</span>
+      <span class="k">if</span> <span class="p">(</span><span class="n">self</span><span class="p">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">ASAsyncTransactionStateCanceled</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">operation</span><span class="p">.</span><span class="n">value</span> <span class="o">=</span> <span class="n">block</span><span class="p">();</span>
+      <span class="p">}</span>
+    <span class="p">}</span>
+  <span class="p">});</span>
+<span class="p">}</span>
+</code></pre>
+</div>
+<p>可以看到block被封装成ASAsyncTransactionOperation对象，然后由Group对象进行调度。</p>
+
+
+  </section>
+</article>
+
+<section>
+
+            <div class="content-play">
+              <p><a href="javascript:void(0)" onclick="dashangToggle()" class="dashang" title="打赏，支持一下">打赏一个呗</a></p>
+              <div class="hide_box-play"></div>
+              <div class="shang_box-play">
+                <a class="shang_close-play" href="javascript:void(0)" onclick="dashangToggle()" title="关闭"><img src="/images/payimg/close.jpg" alt="取消" /></a>
+                <div class="shang_tit-play">
+                  <p>感谢您的支持，我会继续努力的!</p>
+                </div>
+                <div class="shang_payimg">
+                    <img src="/images/payimg/alipayimg.png" alt="扫码支持" title="扫一扫" />
+                </div>
+              <div class="shang_payimg">    
+                    <img src="/images/payimg/weipayimg.png" alt="扫码支持" title="扫一扫" />
+                </div>
+                <div class="pay_explain">扫码打赏，你说多少就多少</div>
+                <div class="shang_payselect">
+                  <div class="pay_item checked" data-id="alipay">
+                    <span class="pay_logo"><img src="/images/payimg/alipay.jpg" alt="支付宝" /></span>
+                  </div>
+                  <div class="pay_item" data-id="weipay">
+                    <span class="pay_logo"><img src="/images/payimg/wechat.jpg" alt="微信" /></span>
+                  </div>
+                </div>
+                <div class="shang_info-play">
+                  <p>打开<span id="shang_pay_txt">支付宝</span>扫一扫，即可进行扫码打赏哦</p>
+                </div>
+              </div>
+            </div>
+            <script type="text/javascript">
+            function dashangToggle(){
+              $(".hide_box-play").fadeToggle();
+              $(".shang_box-play").fadeToggle();
+            }
+            </script>
+
+            <div style="text-align:center;margin:50px 0; font:normal 14px/24px 'MicroSoft YaHei';"></div>
+
+            <style type="text/css">
+              .content-play{width:80%;margin-top: 20px;margin-bottom: 10px;height:40px;}
+              .hide_box-play{z-index:999;filter:alpha(opacity=50);background:#666;opacity: 0.5;-moz-opacity: 0.5;left:0;top:0;height:99%;width:100%;position:fixed;display:none;}
+              .shang_box-play{width:540px;height:540px;padding:10px;background-color:#fff;border-radius:10px;position:fixed;z-index:1000;left:50%;top:50%;margin-left:-280px;margin-top:-280px;border:1px dotted #dedede;display:none;}
+              .shang_box-play img{border:none;border-width:0;}
+              .dashang{display:block;width:100px;margin:5px auto;height:25px;line-height:25px;padding:10px;background-color:#E74851;color:#fff;text-align:center;text-decoration:none;border-radius:10px;font-weight:bold;font-size:16px;transition: all 0.3s;}
+              .dashang:hover{opacity:0.8;padding:15px;font-size:18px;}
+              .shang_close-play{float:right;display:inline-block;
+                margin-right: 10px;margin-top: 20px;
+              }
+              .shang_logo{display:block;text-align:center;margin:20px auto;}
+              .shang_tit-play{width: 100%;height: 75px;text-align: center;line-height: 66px;color: #a3a3a3;font-size: 16px;background: url('/images/payimg/cy-reward-title-bg.jpg');font-family: 'Microsoft YaHei';margin-top: 7px;margin-right:2px;}
+              .shang_tit-play p{color:#a3a3a3;text-align:center;font-size:16px;}
+              .shang_payimg{width:140px;padding:10px;padding-left: 80px; /*border:6px solid #EA5F00;**/margin:0 auto;border-radius:3px;height:140px;display:inline-block;}
+              .shang_payimg img{display:inline-block;margin-right:10px;float:left;text-align:center;width:140px;height:140px; }
+              .pay_explain{text-align:center;margin:10px auto;font-size:12px;color:#545454;}
+              .shang_payselect{text-align:center;margin:0 auto;margin-top:40px;cursor:pointer;height:60px;width:500px;margin-left:110px;}
+              .shang_payselect .pay_item{display:inline-block;margin-right:140px;float:left;}
+              .shang_info-play{clear:both;}
+              .shang_info-play p,.shang_info-play a{color:#C3C3C3;text-align:center;font-size:12px;text-decoration:none;line-height:2em;}
+            </style>
+
+       <ul class="pager">
+        
+        <li class="previous">
+            <a href="/2017/11/uinavigation/" data-toggle="tooltip" data-placement="top" title="NavigationBar的隐藏与显示">上一篇：  <span>NavigationBar的隐藏与显示</span>
+            </a>
+        </li>
+        
+        
+        <li class="next">
+            <a href="/2017/12/UIButton-backgroundColor-setting/" data-toggle="tooltip" data-placement="top" title="设置UIButton背景颜色的正确姿势">下一篇：  <span>设置UIButton背景颜色的正确姿势</span>
+            </a>
+        </li>
+        
+    </ul>
+</section>
+
+<section class="post-comments">
+
+  
+    <div id="disqus_thread"></div>
+    <script>
+    
+    var disqus_config = function () {
+        this.page.url = "http://localhost:4000/2017/11/ASDK/";
+        this.page.identifier = "/2017/11/ASDK/";
+    };
+    var disqus_shortname = 'vno-jekyll';
+    
+    (function() { // DON'T EDIT BELOW THIS LINE
+        var d = document, s = d.createElement('script');
+        s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+            (d.head || d.body).appendChild(s);
+        })();
+    </script>
+    <noscript>要查看<a href="http://disqus.com/?ref_noscript"> Disqus </a>评论，请启用 JavaScript</noscript>
+    
+  
+
+</section>
+
+
+            <section class="footer">
+    <footer>
+        <div class = "footer_div">  
+        <nav class="cover-navigation navigation--social">
+          <ul class="navigation">
+
+          
+          <!-- Weibo -->
+          <li class="navigation__item_social">
+            <a href="http://weibo.com/2618316933" title="@2618316933 的微博" target="_blank">
+              <i class='social fa fa-weibo fa-2x'></i>
+              <span class="label">Weibo</span>
+            </a>
+          </li>
+          
+
+          
+          <!-- Github -->
+          <li class="navigation__item_social">
+            <a href="https://github.com/sunshinelww" title="@sunshinelww 的 Github" target="_blank">
+              <i class='social fa fa-github fa-2x'></i>
+              <span class="label">Github</span>
+            </a>
+          </li>
+          
+          
+          
+
+          
+
+          <!-- RSS -->
+          <li class="navigation__item_social">
+            <a href="/feed.xml" rel="author" title="RSS" target="_blank">
+              <i class='social fa fa-rss fa-2x'></i>
+              <span class="label">RSS</span>
+            </a>
+          </li>
+
+          
+          <!-- Email -->
+          <li class="navigation__item_social">
+            <a href="mailto:13517248639@163.com" title="Contact me">
+              <i class='social fa fa-envelope fa-2x'></i>
+              <span class="label">Email</span>
+            </a>
+          </li>
+          
+
+          </ul>
+        </nav>
+
+        </div>
+
+        <div class = "footer_div">  
+           <p class="copyright text-muted">
+            Copyright &copy; sunshinelww 2017 Theme by <a href="http://baixin.io/">leopardpan</a> |
+            <iframe
+                style="margin-left: 2px; margin-bottom:-5px;"
+                frameborder="0" scrolling="0" width="91px" height="20px"
+                src="https://ghbtns.com/github-btn.html?user=leopardpan&repo=leopardpan.github.io&type=star&count=true" >
+            </iframe>
+            </p>
+        	<div align="right">
+    			<link rel="stylesheet" href="//cdn.bootcss.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+          <!-- 访问统计 -->
+          <span id="busuanzi_container_site_pv">
+            本站总访问量
+            <span id="busuanzi_value_site_pv"></span>次
+          </span>
+
+        </div>
+        <div>
+    </footer>
+</section>
+
+        </div>
+    </div>
+    
+    <script type="text/javascript" src="//code.jquery.com/jquery-1.11.3.min.js"></script>
+<script type="text/javascript" src="/js/main.js"></script>
+
+<script type="text/javascript" src="/js/highlight.pack.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+
+
+
+    
+  </body>
+
+</html>

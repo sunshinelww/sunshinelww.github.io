@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  <title>Sonic iOS 源码分析</title>
+  <meta name="description" content="最近在研读Vas Sonic的源码，Sonic是一款轻量级的高性能Hybrid框架，由腾讯QQ会员团队开发，专注于提升H5页面首屏加载速度。">
+  <meta name="author" content="leopardpan">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Sonic iOS 源码分析">
+  <meta name="twitter:description" content="最近在研读Vas Sonic的源码，Sonic是一款轻量级的高性能Hybrid框架，由腾讯QQ会员团队开发，专注于提升H5页面首屏加载速度。">
+  
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Sonic iOS 源码分析">
+  <meta property="og:description" content="最近在研读Vas Sonic的源码，Sonic是一款轻量级的高性能Hybrid框架，由腾讯QQ会员团队开发，专注于提升H5页面首屏加载速度。">
+  
+  <link rel="icon" type="image/png" href="/images/favicon.png" />
+  <link href="/images/favicon.png" rel="shortcut icon" type="image/png">
+  
+  <link rel="stylesheet" href="/css/main.css">
+  <link href="//netdna.bootstrapcdn.com/font-awesome/4.1.0/css/font-awesome.min.css" rel="stylesheet">
+
+  <link rel="canonical" href="http://localhost:4000/2017/12/Sonic-series1/">
+  <link rel="alternate" type="application/rss+xml" title="sunshinelww" href="http://localhost:4000/feed.xml">
+  
+  <meta name="google-site-verification" content="1-1ZlHoRvM0T2FqPbW2S-qLgYXN6rsn52kErlMPd_gw" />
+
+<!-- 站点统计 -->
+  <script 
+  async src="//dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js">
+  </script>  
+
+<!-- 百度统计 -->
+  
+
+<!-- google 统计 -->
+  
+
+  <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<script>
+  (adsbygoogle = window.adsbygoogle || []).push({
+    google_ad_client: "ca-pub-9005224472374751",
+    enable_page_level_ads: true
+  });
+</script>
+
+</head>
+
+
+  <body>
+
+    <span class="mobile btn-mobile-menu">        
+      <div class="nav_container">
+         <nav class="nav-menu-item" style = "float:right">
+            <i class="nav-menu-item">
+              <a href="/#blog" title="Visit blog" class="blog-button">  博客
+              </a>
+            </i>
+            
+                <i class="nav-menu-item">
+
+                  <a href="https://github.com/sunshinelww" title="My Projects" class="btn-mobile-menu__icon">
+                      github
+                  </a>
+                </i>
+            
+          </nav>
+      </div>
+    </span>
+    
+    <header class="panel-cover panel-cover--collapsed" style="background-image: url('/images/background-cover.jpg')">
+  <div class="panel-main">
+
+    <div class="panel-main__inner panel-inverted">
+    <div class="panel-main__content">
+        <!-- 头像效果-start -->
+        <div class="ih-item circle effect right_to_left">            
+            <a href="/#blog" title="前往 sunshinelww 的主页" class="blog-button">
+                <div class="img"><img src="/images/avatar.jpg" alt="img"></div>
+                <div class="info">
+                    <div class="info-back">
+                        <h2> 
+                            
+                        </h2>
+                        <p>
+                           
+                        </p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <!-- 头像效果-end -->
+        <h1 class="panel-cover__title panel-title"><a href="/#blog" title="link to homepage for sunshinelww" class="blog-button">sunshinelww</a></h1>
+        
+        <span class="panel-cover__subtitle panel-subtitle">执着的程序员.</span>
+        
+        <hr class="panel-cover__divider" />
+        <p class="panel-cover__description">要有最朴素的生活和最遥远的梦想，即使明日天寒地冻、路遥马亡 .</p>
+        <hr class="panel-cover__divider panel-cover__divider--secondary" />
+        
+        
+        
+
+        <div class="navigation-wrapper">
+          <div>
+            <nav class="cover-navigation cover-navigation--primary">
+              <ul class="navigation">
+                <li class="navigation__item"><a href="/#blog" title="Visit blog" class="blog-button">博客</a></li>
+                
+                  <li class="navigation__item"><a href="https://github.com/sunshinelww" title="My Projects">github</a></li>
+                
+              </ul>
+            </nav>
+          </div>          
+        </div>
+
+
+        </div>
+      </div>
+    </div>
+    
+    
+    <div class="panel-cover--overlay cover-slate"></div>
+    
+  </div>
+</header>
+
+
+    <div class="content-wrapper">
+        <div class="content-wrapper__inner">
+            <article class="post-container post-container--single" itemscope itemtype="http://schema.org/BlogPosting">
+  <header class="post-header">
+    <h1 class="post-title">Sonic iOS 源码分析</h1>
+    <div class="post-meta">
+      <img src="/images/calendar.png" width="20px"/> 
+      <time datetime="2017-12-14 00:00:00 +0800" itemprop="datePublished" class="post-meta__date date">2017-12-14</time>  
+         
+      <span id="busuanzi_container_page_pv"> | 阅读：<span id="busuanzi_value_page_pv"></span>次</span>
+    </p>
+    </div>
+  </header>
+
+  <section class="post">
+    <p>最近在研读Vas Sonic的源码，Sonic是一款轻量级的高性能Hybrid框架，由腾讯QQ会员团队开发，专注于提升H5页面首屏加载速度。</p>
+
+<blockquote>
+  <p>首屏就是指用户在没有滚动时候看到的内容渲染完成并且可以交互的时间。至于加载时间，则是整个页面滚动到底部，所有内容加载完毕并可交互的时间。</p>
+</blockquote>
+
+<p>H5以其开发和维护的成本较低，开发周期较短的天然优势满足了APP快速迭代的需求。目前很多APP或多或少接入了H5页面，但H5存在的缺点是加载速度慢，造成不好的用户体验。因此，如何优化H5的加载速度可以有效提升用户的满意度。</p>
+
+<p>话不多说，接下来我们看看Sonic这个开源库到底是一个什么样的实现原理,首先给大家奉上Sonic的GitHub地址 <a href="https://github.com/Tencent/VasSonic">点我</a></p>
+
+<p>看一个开源库，我通常会摸清楚其类层次关系，从整体把握其组件，然后在抽茧剥丝。不然会像走入一个迷宫，有种“只在此山中，云深不知处”的感觉。</p>
+
+<p>下面是我绘制Sonic iOS库的UML类图:</p>
+
+<p><img src="image/sonic/sonic_class.png" alt="" /></p>
+
+<p>可以梳理出其包含SonicURLProtocol, SonicEngine, SonicSession, SonicSever和SonicConnection五个组件及其相互之间的联系。下面我们从源码中来分析这几个组件的角色和发挥的作用。</p>
+
+<ol>
+  <li>
+    <p>SonicURLProtocol</p>
+
+    <p>看到SonicURLProtocol这个类，我们立刻就能联想到Foundation库的NSURLProtocol类，用户可以通过子类化NSURLProtocol类来对上层的URLRequest请求做拦截，并根据自己的需求场景做定制化响应处理。具体介绍详见<a href="https://draveness.me/intercept">iOS 开发中使用 NSURLProtocol 拦截 HTTP 请求</a>。SonicURLProtocol利用这个原理来对UIWebView的请求进行拦截，实现自定义页面数据加载和缓存。</p>
+
+    <p>SonicURLProtocol有三个重要的方法：</p>
+
+    <pre><code class="language-Objective-C">+ (BOOL)canInitWithRequest:(NSURLRequest *)request
+{    
+ NSString *value = [request.allHTTPHeaderFields objectForKey:SonicHeaderKeyLoadType];
+ if (value.length != 0 &amp;&amp; [value isEqualToString:SonicHeaderValueWebviewLoad]) {
+     NSString * delegateId = [request.allHTTPHeaderFields objectForKey:SonicHeaderKeyDelegateId];
+     if (delegateId.length != 0) {
+         NSString * sessionID = sonicSessionID(request.URL.absoluteString);
+         SonicSession *session = [[SonicEngine sharedEngine] sessionWithDelegateId:delegateId];
+         if (session &amp;&amp; [sessionID isEqualToString:session.sessionID]) {
+             return YES;
+         }
+       ...
+     }
+ }
+ return NO;
+}
+</code></pre>
+
+    <p>这个方法重写了NSURLProtocol类的方法，主要过滤需要拦截的请求，只有这个方法返回YES我们才能够继续后续的处理。通过这个方法的实现里面进行请求的过滤，筛选出webView的网络请求进行处理的请求。也就是请求头中含有key值SonicHeaderKeyLoadType对应的值为SonicHeaderValueWebviewLoad的NSURLRequest需要被拦截。</p>
+
+    <p>接着会根据请求头中的delegate去SonicEngine中寻找SonicSession,如果找到了对应的SonicSession，接下来会对这个request进行拦截。 那么SonicSession是什么时候被初始化并注册到SonicEngine中的呢？后面我们会进行讲解。</p>
+
+    <p>下面我们继续看第2个方法，代码如下：</p>
+
+    <pre><code class="language-Objective-C">   
+- (void)startLoading 
+{    
+ NSThread *currentThread = [NSThread currentThread];
+
+ NSString *sessionID = [self.request valueForHTTPHeaderField:SonicHeaderKeySessionID];
+    
+ __weak typeof(self) weakSelf = self;
+    
+ [[SonicEngine sharedEngine] registerURLProtocolCallBackWithSessionID:sessionID completion:^(NSDictionary *param) {
+        
+     [weakSelf performSelector:@selector(callClientActionWithParams:) onThread:currentThread withObject:param waitUntilDone:NO];
+        
+ }];
+}
+</code></pre>
+  </li>
+</ol>
+
+<p>这个方法是在请求开始的时候，会被执行。这里做的主要操作是注册了回调，也就是请求结束返回结果后作出对应的操作。核心操作是回调了callClientActionWithParams，也就是我们将要呈现的第三个方法，代码如下：</p>
+
+<pre><code class="language-Objective-C">  - (void)callClientActionWithParams:(NSDictionary *)params
+{
+    SonicURLProtocolAction action = [params[kSonicProtocolAction]integerValue];
+    switch (action) {
+        case SonicURLProtocolActionRecvResponse:
+        {
+            NSHTTPURLResponse *resp = params[kSonicProtocolData];
+            [self.client URLProtocol:self didReceiveResponse:resp cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+        }
+            break;
+        case SonicURLProtocolActionLoadData:
+        {
+            NSData *recvData = params[kSonicProtocolData];
+            if (recvData.length &gt; 0) {
+                [self.client URLProtocol:self didLoadData:recvData];
+            }
+        }
+            break;
+        case SonicURLProtocolActionDidSuccess:
+        {
+            [self.client URLProtocolDidFinishLoading:self];
+        }
+            break;
+        case SonicURLProtocolActionDidFaild:
+        {
+            NSError *err = params[kSonicProtocolData];
+            [self.client URLProtocol:self didFailWithError:err];
+        }
+            break;
+    }
+}
+  
+</code></pre>
+<p>可以看到根据返回的不同的Action作出相应的处理。这里主要是把数据传回请求发起者client（这里就是UIWebView），帮助其正确渲染。</p>
+
+<p>可以看到这个类和我们平时使用一样，主要就是拦截浏览器的请求，然后自定义请求得到数据返回给浏览器，进行渲染。</p>
+
+<ol>
+  <li>SonicURLProtocol</li>
+</ol>
+
+
+
+  </section>
+</article>
+
+<section>
+
+            <div class="content-play">
+              <p><a href="javascript:void(0)" onclick="dashangToggle()" class="dashang" title="打赏，支持一下">打赏一个呗</a></p>
+              <div class="hide_box-play"></div>
+              <div class="shang_box-play">
+                <a class="shang_close-play" href="javascript:void(0)" onclick="dashangToggle()" title="关闭"><img src="/images/payimg/close.jpg" alt="取消" /></a>
+                <div class="shang_tit-play">
+                  <p>感谢您的支持，我会继续努力的!</p>
+                </div>
+                <div class="shang_payimg">
+                    <img src="/images/payimg/alipayimg.png" alt="扫码支持" title="扫一扫" />
+                </div>
+              <div class="shang_payimg">    
+                    <img src="/images/payimg/weipayimg.png" alt="扫码支持" title="扫一扫" />
+                </div>
+                <div class="pay_explain">扫码打赏，你说多少就多少</div>
+                <div class="shang_payselect">
+                  <div class="pay_item checked" data-id="alipay">
+                    <span class="pay_logo"><img src="/images/payimg/alipay.jpg" alt="支付宝" /></span>
+                  </div>
+                  <div class="pay_item" data-id="weipay">
+                    <span class="pay_logo"><img src="/images/payimg/wechat.jpg" alt="微信" /></span>
+                  </div>
+                </div>
+                <div class="shang_info-play">
+                  <p>打开<span id="shang_pay_txt">支付宝</span>扫一扫，即可进行扫码打赏哦</p>
+                </div>
+              </div>
+            </div>
+            <script type="text/javascript">
+            function dashangToggle(){
+              $(".hide_box-play").fadeToggle();
+              $(".shang_box-play").fadeToggle();
+            }
+            </script>
+
+            <div style="text-align:center;margin:50px 0; font:normal 14px/24px 'MicroSoft YaHei';"></div>
+
+            <style type="text/css">
+              .content-play{width:80%;margin-top: 20px;margin-bottom: 10px;height:40px;}
+              .hide_box-play{z-index:999;filter:alpha(opacity=50);background:#666;opacity: 0.5;-moz-opacity: 0.5;left:0;top:0;height:99%;width:100%;position:fixed;display:none;}
+              .shang_box-play{width:540px;height:540px;padding:10px;background-color:#fff;border-radius:10px;position:fixed;z-index:1000;left:50%;top:50%;margin-left:-280px;margin-top:-280px;border:1px dotted #dedede;display:none;}
+              .shang_box-play img{border:none;border-width:0;}
+              .dashang{display:block;width:100px;margin:5px auto;height:25px;line-height:25px;padding:10px;background-color:#E74851;color:#fff;text-align:center;text-decoration:none;border-radius:10px;font-weight:bold;font-size:16px;transition: all 0.3s;}
+              .dashang:hover{opacity:0.8;padding:15px;font-size:18px;}
+              .shang_close-play{float:right;display:inline-block;
+                margin-right: 10px;margin-top: 20px;
+              }
+              .shang_logo{display:block;text-align:center;margin:20px auto;}
+              .shang_tit-play{width: 100%;height: 75px;text-align: center;line-height: 66px;color: #a3a3a3;font-size: 16px;background: url('/images/payimg/cy-reward-title-bg.jpg');font-family: 'Microsoft YaHei';margin-top: 7px;margin-right:2px;}
+              .shang_tit-play p{color:#a3a3a3;text-align:center;font-size:16px;}
+              .shang_payimg{width:140px;padding:10px;padding-left: 80px; /*border:6px solid #EA5F00;**/margin:0 auto;border-radius:3px;height:140px;display:inline-block;}
+              .shang_payimg img{display:inline-block;margin-right:10px;float:left;text-align:center;width:140px;height:140px; }
+              .pay_explain{text-align:center;margin:10px auto;font-size:12px;color:#545454;}
+              .shang_payselect{text-align:center;margin:0 auto;margin-top:40px;cursor:pointer;height:60px;width:500px;margin-left:110px;}
+              .shang_payselect .pay_item{display:inline-block;margin-right:140px;float:left;}
+              .shang_info-play{clear:both;}
+              .shang_info-play p,.shang_info-play a{color:#C3C3C3;text-align:center;font-size:12px;text-decoration:none;line-height:2em;}
+            </style>
+
+       <ul class="pager">
+        
+        <li class="previous">
+            <a href="/2017/12/UIButton-backgroundColor-setting/" data-toggle="tooltip" data-placement="top" title="设置UIButton背景颜色的正确姿势">上一篇：  <span>设置UIButton背景颜色的正确姿势</span>
+            </a>
+        </li>
+        
+        
+    </ul>
+</section>
+
+<section class="post-comments">
+
+  
+    <div id="disqus_thread"></div>
+    <script>
+    
+    var disqus_config = function () {
+        this.page.url = "http://localhost:4000/2017/12/Sonic-series1/";
+        this.page.identifier = "/2017/12/Sonic-series1/";
+    };
+    var disqus_shortname = 'vno-jekyll';
+    
+    (function() { // DON'T EDIT BELOW THIS LINE
+        var d = document, s = d.createElement('script');
+        s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+            (d.head || d.body).appendChild(s);
+        })();
+    </script>
+    <noscript>要查看<a href="http://disqus.com/?ref_noscript"> Disqus </a>评论，请启用 JavaScript</noscript>
+    
+  
+
+</section>
+
+
+            <section class="footer">
+    <footer>
+        <div class = "footer_div">  
+        <nav class="cover-navigation navigation--social">
+          <ul class="navigation">
+
+          
+          <!-- Weibo -->
+          <li class="navigation__item_social">
+            <a href="http://weibo.com/2618316933" title="@2618316933 的微博" target="_blank">
+              <i class='social fa fa-weibo fa-2x'></i>
+              <span class="label">Weibo</span>
+            </a>
+          </li>
+          
+
+          
+          <!-- Github -->
+          <li class="navigation__item_social">
+            <a href="https://github.com/sunshinelww" title="@sunshinelww 的 Github" target="_blank">
+              <i class='social fa fa-github fa-2x'></i>
+              <span class="label">Github</span>
+            </a>
+          </li>
+          
+          
+          
+
+          
+
+          <!-- RSS -->
+          <li class="navigation__item_social">
+            <a href="/feed.xml" rel="author" title="RSS" target="_blank">
+              <i class='social fa fa-rss fa-2x'></i>
+              <span class="label">RSS</span>
+            </a>
+          </li>
+
+          
+          <!-- Email -->
+          <li class="navigation__item_social">
+            <a href="mailto:13517248639@163.com" title="Contact me">
+              <i class='social fa fa-envelope fa-2x'></i>
+              <span class="label">Email</span>
+            </a>
+          </li>
+          
+
+          </ul>
+        </nav>
+
+        </div>
+
+        <div class = "footer_div">  
+           <p class="copyright text-muted">
+            Copyright &copy; sunshinelww 2017 Theme by <a href="http://baixin.io/">leopardpan</a> |
+            <iframe
+                style="margin-left: 2px; margin-bottom:-5px;"
+                frameborder="0" scrolling="0" width="91px" height="20px"
+                src="https://ghbtns.com/github-btn.html?user=leopardpan&repo=leopardpan.github.io&type=star&count=true" >
+            </iframe>
+            </p>
+        	<div align="right">
+    			<link rel="stylesheet" href="//cdn.bootcss.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+          <!-- 访问统计 -->
+          <span id="busuanzi_container_site_pv">
+            本站总访问量
+            <span id="busuanzi_value_site_pv"></span>次
+          </span>
+
+        </div>
+        <div>
+    </footer>
+</section>
+
+        </div>
+    </div>
+    
+    <script type="text/javascript" src="//code.jquery.com/jquery-1.11.3.min.js"></script>
+<script type="text/javascript" src="/js/main.js"></script>
+
+<script type="text/javascript" src="/js/highlight.pack.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+
+
+
+    
+  </body>
+
+</html>

@@ -2,12 +2,578 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>sunshinelww</title>
-    <description>A crazy programmer .</description>
+    <description>要有最朴素的生活和最遥远的梦想，即使明日天寒地冻、路遥马亡 .</description>
     <link>http://localhost:4000/</link>
     <atom:link href="http://localhost:4000/feed.xml" rel="self" type="application/rss+xml"/>
-    <pubDate>Wed, 13 Dec 2017 17:53:41 +0800</pubDate>
-    <lastBuildDate>Wed, 13 Dec 2017 17:53:41 +0800</lastBuildDate>
-    <generator>Jekyll v3.4.0</generator>
+    <pubDate>Mon, 18 Dec 2017 16:18:59 +0800</pubDate>
+    <lastBuildDate>Mon, 18 Dec 2017 16:18:59 +0800</lastBuildDate>
+    <generator>Jekyll v3.5.2</generator>
+    
+      <item>
+        <title>Sonic iOS 源码分析</title>
+        <description>&lt;p&gt;最近在研读Vas Sonic的源码，Sonic是一款轻量级的高性能Hybrid框架，由腾讯QQ会员团队开发，专注于提升H5页面首屏加载速度。&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;首屏就是指用户在没有滚动时候看到的内容渲染完成并且可以交互的时间。至于加载时间，则是整个页面滚动到底部，所有内容加载完毕并可交互的时间。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;H5以其开发和维护的成本较低，开发周期较短的天然优势满足了APP快速迭代的需求。目前很多APP或多或少接入了H5页面，但H5存在的缺点是加载速度慢，造成不好的用户体验。因此，如何优化H5的加载速度可以有效提升用户的满意度。&lt;/p&gt;
+
+&lt;p&gt;话不多说，接下来我们看看Sonic这个开源库到底是一个什么样的实现原理,首先给大家奉上Sonic的GitHub地址 &lt;a href=&quot;https://github.com/Tencent/VasSonic&quot;&gt;点我&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;看一个开源库，我通常会摸清楚其类层次关系，从整体把握其组件，然后在抽茧剥丝。不然会像走入一个迷宫，有种“只在此山中，云深不知处”的感觉。&lt;/p&gt;
+
+&lt;p&gt;下面是我绘制Sonic iOS库的UML类图:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;image/sonic/sonic_class.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;可以梳理出其包含SonicURLProtocol, SonicEngine, SonicSession, SonicSever和SonicConnection五个组件及其相互之间的联系。下面我们从源码中来分析这几个组件的角色和发挥的作用。&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;SonicURLProtocol&lt;/p&gt;
+
+    &lt;p&gt;看到SonicURLProtocol这个类，我们立刻就能联想到Foundation库的NSURLProtocol类，用户可以通过子类化NSURLProtocol类来对上层的URLRequest请求做拦截，并根据自己的需求场景做定制化响应处理。具体介绍详见&lt;a href=&quot;https://draveness.me/intercept&quot;&gt;iOS 开发中使用 NSURLProtocol 拦截 HTTP 请求&lt;/a&gt;。SonicURLProtocol利用这个原理来对UIWebView的请求进行拦截，实现自定义页面数据加载和缓存。&lt;/p&gt;
+
+    &lt;p&gt;SonicURLProtocol有三个重要的方法：&lt;/p&gt;
+
+    &lt;pre&gt;&lt;code class=&quot;language-Objective-C&quot;&gt;+ (BOOL)canInitWithRequest:(NSURLRequest *)request
+{    
+ NSString *value = [request.allHTTPHeaderFields objectForKey:SonicHeaderKeyLoadType];
+ if (value.length != 0 &amp;amp;&amp;amp; [value isEqualToString:SonicHeaderValueWebviewLoad]) {
+     NSString * delegateId = [request.allHTTPHeaderFields objectForKey:SonicHeaderKeyDelegateId];
+     if (delegateId.length != 0) {
+         NSString * sessionID = sonicSessionID(request.URL.absoluteString);
+         SonicSession *session = [[SonicEngine sharedEngine] sessionWithDelegateId:delegateId];
+         if (session &amp;amp;&amp;amp; [sessionID isEqualToString:session.sessionID]) {
+             return YES;
+         }
+       ...
+     }
+ }
+ return NO;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+    &lt;p&gt;这个方法重写了NSURLProtocol类的方法，主要过滤需要拦截的请求，只有这个方法返回YES我们才能够继续后续的处理。通过这个方法的实现里面进行请求的过滤，筛选出webView的网络请求进行处理的请求。也就是请求头中含有key值SonicHeaderKeyLoadType对应的值为SonicHeaderValueWebviewLoad的NSURLRequest需要被拦截。&lt;/p&gt;
+
+    &lt;p&gt;接着会根据请求头中的delegate去SonicEngine中寻找SonicSession,如果找到了对应的SonicSession，接下来会对这个request进行拦截。 那么SonicSession是什么时候被初始化并注册到SonicEngine中的呢？后面我们会进行讲解。&lt;/p&gt;
+
+    &lt;p&gt;下面我们继续看第2个方法，代码如下：&lt;/p&gt;
+
+    &lt;pre&gt;&lt;code class=&quot;language-Objective-C&quot;&gt;   
+- (void)startLoading 
+{    
+ NSThread *currentThread = [NSThread currentThread];
+
+ NSString *sessionID = [self.request valueForHTTPHeaderField:SonicHeaderKeySessionID];
+    
+ __weak typeof(self) weakSelf = self;
+    
+ [[SonicEngine sharedEngine] registerURLProtocolCallBackWithSessionID:sessionID completion:^(NSDictionary *param) {
+        
+     [weakSelf performSelector:@selector(callClientActionWithParams:) onThread:currentThread withObject:param waitUntilDone:NO];
+        
+ }];
+}
+&lt;/code&gt;&lt;/pre&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;这个方法是在请求开始的时候，会被执行。这里做的主要操作是注册了回调，也就是请求结束返回结果后作出对应的操作。核心操作是回调了callClientActionWithParams，也就是我们将要呈现的第三个方法，代码如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-Objective-C&quot;&gt;  - (void)callClientActionWithParams:(NSDictionary *)params
+{
+    SonicURLProtocolAction action = [params[kSonicProtocolAction]integerValue];
+    switch (action) {
+        case SonicURLProtocolActionRecvResponse:
+        {
+            NSHTTPURLResponse *resp = params[kSonicProtocolData];
+            [self.client URLProtocol:self didReceiveResponse:resp cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+        }
+            break;
+        case SonicURLProtocolActionLoadData:
+        {
+            NSData *recvData = params[kSonicProtocolData];
+            if (recvData.length &amp;gt; 0) {
+                [self.client URLProtocol:self didLoadData:recvData];
+            }
+        }
+            break;
+        case SonicURLProtocolActionDidSuccess:
+        {
+            [self.client URLProtocolDidFinishLoading:self];
+        }
+            break;
+        case SonicURLProtocolActionDidFaild:
+        {
+            NSError *err = params[kSonicProtocolData];
+            [self.client URLProtocol:self didFailWithError:err];
+        }
+            break;
+    }
+}
+  
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;可以看到根据返回的不同的Action作出相应的处理。这里主要是把数据传回请求发起者client（这里就是UIWebView），帮助其正确渲染。&lt;/p&gt;
+
+&lt;p&gt;可以看到这个类和我们平时使用一样，主要就是拦截浏览器的请求，然后自定义请求得到数据返回给浏览器，进行渲染。&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;SonicURLProtocol&lt;/li&gt;
+&lt;/ol&gt;
+
+</description>
+        <pubDate>Thu, 14 Dec 2017 00:00:00 +0800</pubDate>
+        <link>http://localhost:4000/2017/12/Sonic-series1/</link>
+        <guid isPermaLink="true">http://localhost:4000/2017/12/Sonic-series1/</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>设置UIButton背景颜色的正确姿势</title>
+        <description>&lt;p&gt;通常设置按钮背景颜色，我们采用 setBackgroundColor:(UIColor*)color方法，但这只能设置UIControlStateNormal状态下的按钮背景颜色。采用根据color创建按钮的背景图片，然后设置按钮的背景图片可以有效设置按钮在不同状态下的背景颜色。&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;//根据背景颜色创建图片
+- (UIImage *)imageFromColor:(UIColor *)color
+{
+    CGRect rect = CGRectMake(0, 0, 1, 1);
+    UIGraphicsBeginImageContextWithOptions(rect.size, NO, [UIScreen mainScreen].scale);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    CGContextSetFillColorWithColor(context, color.CGColor);
+    CGContextFillRect(context, rect);
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return image;
+}
+
+//设置按钮背景颜色
+ UIColor *color = [self colorWithRGBHexString:@&quot;#049DFF&quot;];
+ UIImage *normalBack = [self imageFromColor:color];
+ [button setBackgroundImage:normalBack forState:UIControlStateNormal];
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;通过这种方式，我们可以通过这种方式同时设置UIControlStateNormal和UIControlStateHighlighted两种状态的背景颜色&lt;/p&gt;
+</description>
+        <pubDate>Tue, 12 Dec 2017 00:00:00 +0800</pubDate>
+        <link>http://localhost:4000/2017/12/UIButton-backgroundColor-setting/</link>
+        <guid isPermaLink="true">http://localhost:4000/2017/12/UIButton-backgroundColor-setting/</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>ASDK源码剖析</title>
+        <description>&lt;p&gt;ASDisplayNode类层次结构图
+ASDisplayNode是整个AsyncDisplayKit的基石，它是ASDK页面异步渲染的核心。如图是ASDisplayNode的类层次图，可以看到常用的一些控件都是从ASDisplayNode继承而来。接下来我们重点分析下ASDisplay的工作原理。
+&lt;img src=&quot;http://upload-images.jianshu.io/upload_images/4297538-f58985a1dc158b40.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240&quot; alt=&quot;ASDisplayNode类层次图.png&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;ASDisplayNode
+首先我们看下官方的解释&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;An &lt;code class=&quot;highlighter-rouge&quot;&gt;ASDisplayNode&lt;/code&gt; is an abstraction over &lt;code class=&quot;highlighter-rouge&quot;&gt;UIView&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;CALayer&lt;/code&gt; that allows you to perform calculations about a view hierarchy off the main thread, and could do rendering off the main thread as well.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;大致的意思是：&lt;code class=&quot;highlighter-rouge&quot;&gt;ASDisplayNode&lt;/code&gt;是&lt;code class=&quot;highlighter-rouge&quot;&gt;UIView&lt;/code&gt;和&lt;code class=&quot;highlighter-rouge&quot;&gt;CALayer&lt;/code&gt;的抽象，它能够实现不在主线程执行视图的层次计算和渲染布局&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;很明显&lt;code class=&quot;highlighter-rouge&quot;&gt;ASDisplayNode&lt;/code&gt;的强大之处在于充分利用后台线程来完成复杂的布局和渲染，通常UIKit的创建、布局计算和渲染绘制都集中在主线程，这增大了主线程的压力从而导致当APP视图过于庞大和复杂时，出现卡顿现象。
+&lt;code class=&quot;highlighter-rouge&quot;&gt;ASDisplayNode&lt;/code&gt;渲染时序图如下，我们可以看到绘制的入口是CALayer的display方法。我们来看下官网对display方法的解释：&lt;/p&gt;
+&lt;blockquote&gt;
+  &lt;p&gt;Do not call this method directly. The layer calls this method at appropriate times to update the layer’s content. If the layer has a delegate object, this method attempts to call the delegate’s  &lt;a href=&quot;https://developer.apple.com/documentation/quartzcore/calayerdelegate/2097261-displaylayer?language=objc&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;displayLayer:&lt;/code&gt;&lt;/a&gt;  method, which the delegate can use to update the layer’s contents. If the delegate does not implement the  &lt;a href=&quot;https://developer.apple.com/documentation/quartzcore/calayerdelegate/2097261-displaylayer?language=objc&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;displayLayer:&lt;/code&gt;&lt;/a&gt;  method, this method creates a backing store and calls the layer’s  &lt;a href=&quot;https://developer.apple.com/documentation/quartzcore/calayer/1410757-drawincontext?language=objc&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;drawInContext:&lt;/code&gt;&lt;/a&gt;  method to fill that backing store with content. The new backing store replaces the previous contents of the layer.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;大意是：&lt;code class=&quot;highlighter-rouge&quot;&gt;display&lt;/code&gt;方法由系统调用，用来更新layer的内容，如果layer有delegate对象，那么display方法将尝试调用delegate的&lt;code class=&quot;highlighter-rouge&quot;&gt;displayLayer:&lt;/code&gt;方法来更新layer的内容。如果delegate没有实现&lt;code class=&quot;highlighter-rouge&quot;&gt;displayLayer:&lt;/code&gt;方法，则这个方法会创建一个backing store ,然后调用layer的&lt;code class=&quot;highlighter-rouge&quot;&gt;drawInContext&lt;/code&gt;方法来填充back store。最后以新的backing store替换layer的先前的内容达到更新layer的目的。通常UIKit中&lt;code class=&quot;highlighter-rouge&quot;&gt;CALayer&lt;/code&gt;的&lt;code class=&quot;highlighter-rouge&quot;&gt;delegate&lt;/code&gt;是&lt;code class=&quot;highlighter-rouge&quot;&gt;UIView&lt;/code&gt;对象。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://upload-images.jianshu.io/upload_images/4297538-80ff774ce66911c9.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240&quot; alt=&quot;ASDisplayNode渲染时序图&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;  &lt;code class=&quot;highlighter-rouge&quot;&gt;_ASDisplayLayer&lt;/code&gt;通过重写了&lt;code class=&quot;highlighter-rouge&quot;&gt;CALayer&lt;/code&gt;的&lt;code class=&quot;highlighter-rouge&quot;&gt;display&lt;/code&gt;方法来自定义CALayer的content属性。&lt;code class=&quot;highlighter-rouge&quot;&gt;_ASDisplayLayer&lt;/code&gt;与&lt;code class=&quot;highlighter-rouge&quot;&gt;ASDisplayNode&lt;/code&gt;的关系类似于&lt;code class=&quot;highlighter-rouge&quot;&gt;CALayer&lt;/code&gt;与&lt;code class=&quot;highlighter-rouge&quot;&gt;UIView&lt;/code&gt;的关系。ASDK所有视图的layer的实现均采用&lt;code class=&quot;highlighter-rouge&quot;&gt;_ASDisplayLayer&lt;/code&gt;。因此&lt;code class=&quot;highlighter-rouge&quot;&gt;_ASDisplayLayer&lt;/code&gt;是绘制的起点。下面我们来仔细分析视图绘制的流程。&lt;/p&gt;
+
+&lt;p&gt;首先&lt;code class=&quot;highlighter-rouge&quot;&gt;_ASDisplayLayer&lt;/code&gt;会将绘制的事件传递给&lt;code class=&quot;highlighter-rouge&quot;&gt;ASDisplayNode&lt;/code&gt;,入口函数代码如下：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;//ASDisplayNode的异步绘制入口
+- (void)displayAsyncLayer:(_ASDisplayLayer *)asyncLayer asynchronously:(BOOL)asynchronously
+{
+  ...
+  __instanceLock__.lock();
+  
+  if (_hierarchyState &amp;amp; ASHierarchyStateRasterized) {
+    __instanceLock__.unlock();
+    return;
+  }
+  
+  CALayer *layer = _layer;
+  BOOL rasterizesSubtree = _flags.rasterizesSubtree;
+  
+  __instanceLock__.unlock();
+
+  // for async display, capture the current displaySentinel value to bail early when the job is executed if another is
+  // enqueued
+  // for sync display, do not support cancellation
+  
+  asdisplaynode_iscancelled_block_t isCancelledBlock = nil;
+  if (asynchronously) {
+    uint displaySentinelValue = ++_displaySentinel;
+    __weak ASDisplayNode *weakSelf = self;
+    isCancelledBlock = ^BOOL{
+      __strong ASDisplayNode *self = weakSelf;
+      return self == nil || (displaySentinelValue != self-&amp;gt;_displaySentinel.load());
+    };
+  } else {
+    isCancelledBlock = ^BOOL{
+      return NO;
+    };
+  }
+
+  // 步骤1.
+  asyncdisplaykit_async_transaction_operation_block_t displayBlock = [self _displayBlockWithAsynchronous:asynchronously isCancelledBlock:isCancelledBlock rasterizing:NO];
+  
+  if (!displayBlock) {
+    return;
+  }
+  
+  ASDisplayNodeAssert(layer, @&quot;Expect _layer to be not nil&quot;);
+
+  //步骤2. 渲染完成后的回调
+  asyncdisplaykit_async_transaction_operation_completion_block_t completionBlock = ^(id&amp;lt;NSObject&amp;gt; value, BOOL canceled){
+    ASDisplayNodeCAssertMainThread();
+    if (!canceled &amp;amp;&amp;amp; !isCancelledBlock()) {
+      UIImage *image = (UIImage *)value;
+      BOOL stretchable = (NO == UIEdgeInsetsEqualToEdgeInsets(image.capInsets, UIEdgeInsetsZero));
+      if (stretchable) {
+        ASDisplayNodeSetResizableContents(layer, image);
+      } else {
+        layer.contentsScale = self.contentsScale;
+        layer.contents = (id)image.CGImage;
+      }
+      [self didDisplayAsyncLayer:self.asyncLayer];
+      
+      if (rasterizesSubtree) { //如果对子类进行了栅格化，则负责调用子类的完成显示函数
+        ASDisplayNodePerformBlockOnEverySubnode(self, NO, ^(ASDisplayNode * _Nonnull node) {
+          [node didDisplayAsyncLayer:node.asyncLayer];
+        });
+      }
+    }
+  };
+
+  // Call willDisplay immediately in either case
+  [self willDisplayAsyncLayer:self.asyncLayer asynchronously:asynchronously];
+  
+  if (rasterizesSubtree) { //提前调用子节点栅格化的即将显示函数
+    ASDisplayNodePerformBlockOnEverySubnode(self, NO, ^(ASDisplayNode * _Nonnull node) {
+      [node willDisplayAsyncLayer:node.asyncLayer asynchronously:asynchronously];
+    });
+  }
+   //步骤3
+    if (asynchronously) {
+        //将结果的最终应用程序同步到layer的contents属性
+        //首先向上遍历superlayer链，直到找到第一个layer的asyncdisplaykit_isAsyncTransactionContainer属性为YES;
+        CALayer *containerLayer = layer.asyncdisplaykit_parentTransactionContainer ? : layer;
+        
+        //在transaction尚且不存在的情况下（例如容器外一个单独的node）,这个调用会allocate transaction，然后添加到_ASAsyncTransactionGroup
+        //并且transaction在runloop的末尾会被自动提交
+        _ASAsyncTransaction *transaction = containerLayer.asyncdisplaykit_asyncTransaction;
+        
+        // Adding this displayBlock operation to the transaction will start it IMMEDIATELY.
+        // The only function of the transaction commit is to gate the calling of the completionBlock.
+        [transaction addOperationWithBlock:displayBlock priority:self.drawingPriority queue:[_ASDisplayLayer displayQueue] completion:completionBlock];
+    } else {
+    UIImage *contents = (UIImage *)displayBlock();
+    completionBlock(contents, NO);
+  }
+}
+
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;代码主要流程是：&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;获取node的displayBlock,也就是负责根据node的视图层级得到需要显示的内容的绘制任务&lt;/li&gt;
+  &lt;li&gt;生成node绘制完成后的回调block&lt;/li&gt;
+  &lt;li&gt;根据&lt;code class=&quot;highlighter-rouge&quot;&gt;displaysAsynchronously&lt;/code&gt;属性来判断是否需要异步展示，如果是异步的，则将displayBlock提交至_ASAsyncTransaction中，否则立即执行displayBlock.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;这里出现了&lt;code class=&quot;highlighter-rouge&quot;&gt;_ASAsyncTransaction&lt;/code&gt;这个类，可以看到异步绘制的block由_ASAsyncTransaction来进行调度。我们可以分析&lt;code class=&quot;highlighter-rouge&quot;&gt;_ASAsyncTransaction&lt;/code&gt;怎么调度displayBlock的。
+首先我们看下_ASAsyncTransaction的创建代码：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;- (_ASAsyncTransaction *)asyncdisplaykit_asyncTransaction
+{
+  _ASAsyncTransaction *transaction = self.asyncdisplaykit_currentAsyncTransaction;
+  if (transaction == nil) {
+    NSHashTable *transactions = self.asyncdisplaykit_asyncLayerTransactions;
+    if (transactions == nil) { //初始化transactions，
+      transactions = [NSHashTable hashTableWithOptions:NSHashTableObjectPointerPersonality];
+      self.asyncdisplaykit_asyncLayerTransactions = transactions;
+    }
+    __weak CALayer *weakSelf = self;
+    transaction = [[_ASAsyncTransaction alloc] initWithCompletionBlock:^(_ASAsyncTransaction *completedTransaction, BOOL cancelled) {
+      __strong CALayer *self = weakSelf;
+      if (self == nil) {
+        return;
+      }
+      [transactions removeObject:completedTransaction];
+      [self asyncdisplaykit_asyncTransactionContainerDidCompleteTransaction:completedTransaction];
+    }];
+    [transactions addObject:transaction];//生成transaction并添加至transactions中
+    self.asyncdisplaykit_currentAsyncTransaction = transaction;
+    [self asyncdisplaykit_asyncTransactionContainerWillBeginTransaction:transaction];
+  }
+  [[_ASAsyncTransactionGroup mainTransactionGroup] addTransactionContainer:self];
+  return transaction;
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;可以看到transaction由transactions管理，transactions是与&lt;code class=&quot;highlighter-rouge&quot;&gt;CALayer&lt;/code&gt;的生命周期绑定的。transaction在任务完成后会被释放掉，这里出现了一个&lt;code class=&quot;highlighter-rouge&quot;&gt;transactionContainer&lt;/code&gt;的概念，&lt;code class=&quot;highlighter-rouge&quot;&gt;transactionContainer&lt;/code&gt;本质就是&lt;code class=&quot;highlighter-rouge&quot;&gt;CALayer&lt;/code&gt;,它通过持有transactions来管理transaction,layer的绘制block优先会添加至asyncTransactionContainer为YES的superLayer的transaction中，这个可以进行配置。如果沿着superlayer链找不到transactionContainer，则自己创建transaction。然后添加绘制block,由自己进行调度。&lt;/p&gt;
+
+&lt;p&gt;至此我们还看不到transaction对displayBlock的调度。接下来我们看下displayBlock被添加入到transaction的操作，代码如下：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;@implementation&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;_ASAsyncTransaction&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;ASAsyncTransactionQueue&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Group&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;_group&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;NSMutableArray&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ASAsyncTransactionOperation&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;_operations&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;...&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;addOperationWithBlock&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;asyncdisplaykit_async_transaction_operation_block_t&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;block&lt;/span&gt;
+                     &lt;span class=&quot;n&quot;&gt;priority&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;NSInteger&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;priority&lt;/span&gt;
+                        &lt;span class=&quot;n&quot;&gt;queue&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dispatch_queue_t&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;queue&lt;/span&gt;
+                   &lt;span class=&quot;n&quot;&gt;completion&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;asyncdisplaykit_async_transaction_operation_completion_block_t&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;completion&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;ASAsyncTransactionAssertMainThread&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;NSAssert&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;state&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ASAsyncTransactionStateOpen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;@&quot;You can only add operations to open transactions&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+  &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;self&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;_ensureTransactionData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+
+  &lt;span class=&quot;n&quot;&gt;ASAsyncTransactionOperation&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;operation&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ASAsyncTransactionOperation&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;alloc&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;initWithOperationCompletionBlock&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;completion&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;_operations&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;addObject&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;operation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;_group&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;schedule&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;priority&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;queue&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;^&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;err&quot;&gt;@autoreleasepool&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;state&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;!=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ASAsyncTransactionStateCanceled&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;operation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;value&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;block&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;可以看到block被封装成ASAsyncTransactionOperation对象，然后由Group对象进行调度。&lt;/p&gt;
+</description>
+        <pubDate>Tue, 14 Nov 2017 00:00:00 +0800</pubDate>
+        <link>http://localhost:4000/2017/11/ASDK/</link>
+        <guid isPermaLink="true">http://localhost:4000/2017/11/ASDK/</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>NavigationBar的隐藏与显示</title>
+        <description>&lt;p&gt;最近在使用UINavigationView时，rootViewController设置多个子UIView进行切换，发现只有最先显示的UIView能正常显示，通过切换显示的UIView的布局向上偏移了64px，导致部分内容被NavigationBar给遮挡了。&lt;/p&gt;
+
+&lt;p&gt;通过查询相关资料才发现iOS6中默认的布局将从navigation bar的底部开始，但到了iOS7中默认布局从navigation bar的顶部开始，这就是为什么所有的UI元素都往上漂移了。&lt;/p&gt;
+
+&lt;p&gt;通常有两种解决方案：
+1.设置NavigationBar的透明度为NO.&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;navigationBarApperance.translucent=NO;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;2.设置NavigationBar的backgroundImage.&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;[navigationBarApperance setBackgroundImage:[UIImage imageWithColor:kColorNavBG] forBarMetrics:UIBarMetricsDefault];
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;还有一种方案是在rootViewController的ViewDidLoad方法中设置:&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;self.edgesForExtendedLayout=UIRectEdgeNone;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;edgesForExtendedLayout是一个类型为UIExtendedEdge的属性，指定边缘要延伸的方向，它的默认值是UIRectEdgeAll，即视图向容器四周延伸。&lt;/p&gt;
+</description>
+        <pubDate>Tue, 14 Nov 2017 00:00:00 +0800</pubDate>
+        <link>http://localhost:4000/2017/11/uinavigation/</link>
+        <guid isPermaLink="true">http://localhost:4000/2017/11/uinavigation/</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>RegexKitLite的使用</title>
+        <description>&lt;p&gt;RegexKitLite是一个很强大的第三方正则表达式开源库，开源地址为：&lt;a href=&quot;http://regexkit.sourceforge.net/&quot;&gt;点我&lt;/a&gt; ，下面我们通过几个Demo来讲解这个库的具体使用。&lt;/p&gt;
+
+&lt;p&gt;首先从地址 http://regexkit.sourceforge.net/ 下载RegexKitLite开源包，然后解压，得到RegexKitLite.h和RegexKitLite.m两个文件，将其导入到工程项目中。然后&lt;code class=&quot;highlighter-rouge&quot;&gt;#import &quot;RegexKitLite.h&quot;&lt;/code&gt;就可以使用。&lt;/p&gt;
+
+&lt;p&gt;第二中方式是通过CocoaPod的方式引入，在Podfile文件中添加RegexKitLite依赖库，通过pod install命令即可下载RegexKitLite库，同样通过&lt;code class=&quot;highlighter-rouge&quot;&gt;#import &quot;RegexKitLite.h&quot;&lt;/code&gt;就可以使用。&lt;/p&gt;
+
+&lt;p&gt;下面我们具体看下RegexKitLite相关Api的使用，核心函数为：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;- (NSString *)stringByMatching:(NSString *)regex capture:(NSInteger)capture
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;参数regex表示正则表达式，capture表示匹配选项。
+capture为0时，表示返回第一次匹配的字符串，带完全匹配的结果
+capture为1时，表示返回第一次匹配的结果中第一处模糊匹配的子字符串
+capture为2时，表示返回第一次匹配的结果中第二处模糊匹配，依次类推。&lt;/p&gt;
+
+&lt;p&gt;如下Demo代码：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    NSString *htmlStr = @&quot;oauth_token=1a1de4ed4fca40599c5e5cfe0f4fba97&amp;amp;oauth_token_secret=3118a84ad910967990ba50f5649632fa&amp;amp;name=foolshit&quot;;
+    NSString *regexString = @&quot;oauth_token=(\\w+)&amp;amp;oauth_token_secret=(\\w+)&amp;amp;name=(\\w+)&quot;;
+    NSString *matchedString1 = [htmlStr stringByMatching:regexString capture:0L]; //返回第一次匹配的结果,带完全匹配的字符
+    NSString *matchedString2 = [htmlStr stringByMatching:regexString capture:1L]; //返回第一次匹配的结果中第1处模糊匹配，不带完全匹配的字符中
+    NSString *matchedString3 = [htmlStr stringByMatching:regexString capture:2L]; //返回第一次匹配的结果中第2处模糊匹配，
+    NSString *matchedString4 = [htmlStr stringByMatching:regexString capture:3L];
+    
+    NSLog(@&quot;%@&quot;,matchedString1);
+    NSLog(@&quot;%@&quot;,matchedString2);
+    NSLog(@&quot;%@&quot;,matchedString3);
+    NSLog(@&quot;%@&quot;,matchedString4);
+
+    htmlStr = @&quot;0_T123F_0_T2F_0_T3F_0&quot;;
+    NSString *regex = @&quot;T123F&quot;;
+    NSString *result = [htmlStr stringByMatching:regex capture:0L];
+    NSLog(@&quot;匹配结果:%@&quot;,result);
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;输出结果为：
+&lt;img src=&quot;http://upload-images.jianshu.io/upload_images/4297538-4492f4e5e44b5373.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240&quot; alt=&quot;&quot; /&gt;
+从输出结果我们可以看到，当capture为0时，返回的是匹配的整个字符串，当capture为1时，返回的是模糊匹配的第一个子字符串。&lt;/p&gt;
+
+&lt;p&gt;在上面字符串&lt;code class=&quot;highlighter-rouge&quot;&gt;0_T123F_0_T2F_0_T3F_0&lt;/code&gt;，由于&lt;code class=&quot;highlighter-rouge&quot;&gt;T123F&lt;/code&gt;是完全匹配，不存在模糊匹配，所以当capture=1时，会抛出异常。&lt;/p&gt;
+</description>
+        <pubDate>Thu, 15 Dec 2016 00:00:00 +0800</pubDate>
+        <link>http://localhost:4000/2016/12/RegexKitLite/</link>
+        <guid isPermaLink="true">http://localhost:4000/2016/12/RegexKitLite/</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>iOS开发之NSPredicate的使用</title>
+        <description>&lt;p&gt;最近在看一个开源项目，里面用到了NSPredicate类，感觉Foundation提供的NSPredicate类及其过滤表达式特别强大，所以特地去学习了下。话不多说，下面我们来一起学习下吧。&lt;/p&gt;
+
+&lt;p&gt;NSPredicate有三个子类，如图是其类结构图&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://upload-images.jianshu.io/upload_images/4297538-e0b249e8a09a8ee3.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240&quot; alt=&quot;NSPredicate类图.png&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;NSPredicate主要用生成基本的条件表达式，如：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;   NSMutableArray *array=[NSMutableArray array];
+    [array addObject:[[Student alloc] initWith:@&quot;lww&quot; age:20]];
+    [array addObject:[[Student alloc] initWith:@&quot;wy&quot; age:20]];
+    [array addObject:[[Student alloc] initWith:@&quot;LWW&quot; age:21]];
+    [array addObject:[[Student alloc] initWith:@&quot;sunshinelww&quot; age:22]];
+    NSPredicate *basicPredicate=[NSPredicate predicateWithFormat:@&quot;name = 'lww'&quot;];
+   [array filterUsingPredicate: basicPredicate]; //通过条件表达式筛选数组元素
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;输出结果：
+&lt;img src=&quot;http://upload-images.jianshu.io/upload_images/4297538-3725b2d1fb4b160c.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240&quot; alt=&quot;&quot; /&gt;
+当然NSPredicate还可以生成很多复杂的谓词表达式，在此我们不详细展开。&lt;/p&gt;
+
+&lt;p&gt;下面我们来看下NSCompoundPredicate类，这个类主要用于组合谓词表达式，有三种组合方式：AND,OR和NOT&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;NSMutableArray *predicateArray=[NSMutableArray array];
+NSPredicate *basicPredicate1=[NSPredicate predicateWithFormat:@&quot;name = 'lww'&quot;];
+NSPredicate *basicPredicate2=[NSPredicate predicateWithFormat:@&quot;age = 20&quot;];[predicateArray addObject: basicPredicate1];
+[predicateArray addObject: basicPredicate2];
+
+NSCompoundPredicate *orMatchPredicate=[NSCompoundPredicate orPredicateWithSubpredicates:predicateArray]; ///对数组中的谓词表达式取或
+NSCompoundPredicate *andMatchPredicate=[NSCompoundPredicate andPredicateWithSubpredicates:predicateArray];///对数组中的谓词表达式取与
+[NSCompoundPredicate notPredicateWithSubpredicate: basicPredicate1]; ///对basicPredicate1取反
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;通过NSCompoundPredicate我们可以灵活实现多谓词条件相结合的方式进行过滤。&lt;/p&gt;
+
+&lt;p&gt;最后我们看下NSComparisonPredicate类的使用，NSComparisonPredicate主要用来比较两个表达式的结果，其中创建NSComparisonPredicate对象需要指定左表达式、右表达式和运算符。构造方法如下：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;- (instancetype)initWithLeftExpression:(NSExpression *)lhs 
+                       rightExpression:(NSExpression *)rhs 
+                              modifier:(NSComparisonPredicateModifier)modifier 
+                                  type:(NSPredicateOperatorType)type 
+                               options:(NSComparisonPredicateOptions)options;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;表达式类为NSExpression,NSExpression分为constant Value和key path等。
+其次是操作符枚举NSPredicateOperatorType，主要有：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;typedef NS_ENUM(NSUInteger, NSPredicateOperatorType) {
+    NSLessThanPredicateOperatorType = 0, // compare: returns NSOrderedAscending
+    NSLessThanOrEqualToPredicateOperatorType, // compare: returns NSOrderedAscending || NSOrderedSame
+    NSGreaterThanPredicateOperatorType, // compare: returns NSOrderedDescending
+    NSGreaterThanOrEqualToPredicateOperatorType, // compare: returns NSOrderedDescending || NSOrderedSame
+    NSEqualToPredicateOperatorType, // isEqual: returns true
+    NSNotEqualToPredicateOperatorType, // isEqual: returns false
+    NSMatchesPredicateOperatorType,
+    NSLikePredicateOperatorType,
+    NSBeginsWithPredicateOperatorType,
+    NSEndsWithPredicateOperatorType,
+    NSInPredicateOperatorType, // rhs contains lhs returns true
+    NSCustomSelectorPredicateOperatorType,
+    NSContainsPredicateOperatorType NS_ENUM_AVAILABLE(10_5, 3_0) = 99, // lhs contains rhs returns true
+    NSBetweenPredicateOperatorType NS_ENUM_AVAILABLE(10_5, 3_0)
+};
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;通过指定操作符我们可以对两个表达式进行比较。
+该函数最后一个参数是枚举NSComparisonPredicateOptions用来指定比较选项，定义如下：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;typedef NS_OPTIONS(NSUInteger, NSComparisonPredicateOptions) {
+    NSCaseInsensitivePredicateOption = 0x01, //大小写不敏感
+    NSDiacriticInsensitivePredicateOption = 0x02, //忽视发音符号
+    NSNormalizedPredicateOption NS_ENUM_AVAILABLE(10_6, 4_0) = 0x04, /* 表示待比较的字符串已经被预处理了。这一选项取代了NSCaseInsensitivePredicateOption和NSDiacriticInsensitivePredicateOption，旨在用作性能优化的选项 */
+};
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;最后用一个例子综合应用上述三个类。代码如下：&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    NSMutableArray *array=[NSMutableArray array];
+    [array addObject:[[Student alloc] initWith:@&quot;lww&quot; age:20]];
+    [array addObject:[[Student alloc] initWith:@&quot;wy&quot; age:20]];
+    [array addObject:[[Student alloc] initWith:@&quot;LWW&quot; age:21]];
+    [array addObject:[[Student alloc] initWith:@&quot;sunshinelww&quot; age:22]];
+
+    
+    NSExpression *lhs=[NSExpression expressionForKeyPath:@&quot;name&quot;];
+    NSExpression *rhs=[NSExpression expressionForConstantValue:@&quot;lww&quot;];
+    
+    NSPredicate *predicate1=[NSComparisonPredicate predicateWithLeftExpression:lhs rightExpression:rhs modifier:NSDirectPredicateModifier type:NSContainsPredicateOperatorType options:0]; //name字符串包含“lww”
+    
+    lhs=[NSExpression expressionForKeyPath:@&quot;age&quot;];
+    rhs=[NSExpression expressionForConstantValue:@20];
+
+    NSPredicate *predicate2=[NSComparisonPredicate predicateWithLeftExpression:lhs rightExpression:rhs modifier:NSDirectPredicateModifier type:NSEqualToPredicateOperatorType options:NSCaseInsensitivePredicateOption]; //age=20
+
+    NSMutableArray *predicateArray=[NSMutableArray array];
+    [predicateArray addObject:predicate1];
+    [predicateArray addObject:predicate2];
+    
+    NSCompoundPredicate *andMatchPredicate=[NSCompoundPredicate andPredicateWithSubpredicates:predicateArray]; //对两个谓词求与
+
+    [array filterUsingPredicate:andMatchPredicate];
+   
+    for (Student *stu in array) {
+        [stu printAddress];
+    }
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt;输出结果&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://upload-images.jianshu.io/upload_images/4297538-40e226582565f361.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+</description>
+        <pubDate>Sat, 19 Nov 2016 00:00:00 +0800</pubDate>
+        <link>http://localhost:4000/2016/11/NSPredicate/</link>
+        <guid isPermaLink="true">http://localhost:4000/2016/11/NSPredicate/</guid>
+        
+        
+      </item>
     
   </channel>
 </rss>
