@@ -5,8 +5,8 @@
     <description>要有最朴素的生活和最遥远的梦想，即使明日天寒地冻、路遥马亡 .</description>
     <link>http://localhost:4000/</link>
     <atom:link href="http://localhost:4000/feed.xml" rel="self" type="application/rss+xml"/>
-    <pubDate>Mon, 18 Dec 2017 16:18:59 +0800</pubDate>
-    <lastBuildDate>Mon, 18 Dec 2017 16:18:59 +0800</lastBuildDate>
+    <pubDate>Mon, 18 Dec 2017 22:12:16 +0800</pubDate>
+    <lastBuildDate>Mon, 18 Dec 2017 22:12:16 +0800</lastBuildDate>
     <generator>Jekyll v3.5.2</generator>
     
       <item>
@@ -25,7 +25,7 @@
 
 &lt;p&gt;下面是我绘制Sonic iOS库的UML类图:&lt;/p&gt;
 
-&lt;p&gt;&lt;img src=&quot;image/sonic/sonic_class.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;../images/posts/sonic/sonic_class.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
 
 &lt;p&gt;可以梳理出其包含SonicURLProtocol, SonicEngine, SonicSession, SonicSever和SonicConnection五个组件及其相互之间的联系。下面我们从源码中来分析这几个组件的角色和发挥的作用。&lt;/p&gt;
 
@@ -120,13 +120,188 @@
 &lt;p&gt;可以看到这个类和我们平时使用一样，主要就是拦截浏览器的请求，然后自定义请求得到数据返回给浏览器，进行渲染。&lt;/p&gt;
 
 &lt;ol&gt;
-  &lt;li&gt;SonicURLProtocol&lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;SonicEngine&lt;/p&gt;
+
+    &lt;p&gt;顺藤摸瓜，我们看到第二个组件类SonicEngine,这是个单例对象类，通过上面的类图可以看到它主要作用是用来创建和管理SonicSession类，其对外暴露了两个重要的接口：&lt;/p&gt;
+
+    &lt;p&gt;通过url和delegate来创建SonicSession&lt;/p&gt;
+
+    &lt;pre&gt;&lt;code class=&quot;language-Objective-C&quot;&gt;- (void)createSessionWithUrl:(NSString *)url withWebDelegate:(id&amp;lt;SonicSessionDelegate&amp;gt;)aWebDelegate withConfiguration:(SonicSessionConfiguration *)configuration
+&lt;/code&gt;&lt;/pre&gt;
+    &lt;p&gt;外部请求发起者注册结果回调处理&lt;/p&gt;
+
+    &lt;pre&gt;&lt;code class=&quot;language-Objective-C&quot;&gt;- (void)registerURLProtocolCallBackWithSessionID:(NSString *)sessionID completion:(SonicURLProtocolCallBack)protocolCallBack
+&lt;/code&gt;&lt;/pre&gt;
+    &lt;p&gt;这个类主要充当中转站的作用，同时管理SonicSession类，根据请求者和请求的URL分配Session来完成网络请求。比较简单，下面我们具体看下核心处理类SonicSession。&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;SonicSession&lt;/p&gt;
+  &lt;/li&gt;
 &lt;/ol&gt;
+
+&lt;p&gt;SonicSession由请求的url和delegate(WebView的持有者)唯一确定。Sonic在初始化的时候会尝试从本地缓存中读取数据，如果数据存在，则直接将数据返回给请求着，否则，会等待请求结束后，将数据返回过去，并且将这次请求数据缓存下来。如果服务器最新的数据到达后，会根据返回码来选择性对浏览器已经渲染的视图进行修正。&lt;/p&gt;
+
+&lt;p&gt;这里我们需要介绍下Sonic的缓存和更新思路，Sonic将Html代码人为分为模板（Template）和数据（Data）。通过代码注释的方式，增加了“sonicdiff-xxx”来标注一个数据块的开始与结束。模板就是将数据块抠掉之后的Html，然后通过{albums}来表示这个是一个数据块占位。数据就是JSON格式，直接Key-Value。如图是官方一张图&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;../images/posts/sonic/html_structure.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;由于我们HTML页面模板更新的频率比较低，而HTML需要展示的数据则更新频繁。通过这个思路，就可以实现HTML页面的增量更新。具体思想可以前往&lt;a href=&quot;http://www.infoq.com/cn/articles/vassonic-manual-q-open-source-hybrid-framework&quot;&gt;VasSonic：手Q开源Hybrid框架介绍&lt;/a&gt;。&lt;/p&gt;
+
+&lt;p&gt;这样客户端就可以根据服务器返回的请求头来增量更新HTML页面。具体代码如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-Objective-C&quot;&gt;   - (void)updateDidSuccess
+{
+    switch (self.sonicServer.response.statusCode) {//获得Response响应头
+        case 304: //完全使用缓存
+        {
+            self.sonicStatusCode = SonicStatusCodeAllCached;
+            self.sonicStatusFinalCode = SonicStatusCodeAllCached;
+            //update headers
+            [[SonicCache shareCache] saveResponseHeaders:self.sonicServer.response.allHeaderFields withSessionID:self.sessionID];
+        }
+            break;
+        case 200: // Only need to request dynamic data.
+        {
+            if (![self.sonicServer isSonicResponse]) {
+                [[SonicCache shareCache] removeCacheBySessionID:self.sessionID];
+                NSLog(@&quot;Clear cache because while not sonic repsonse!&quot;);
+                break;
+            }
+            
+            if ([self isTemplateChange]) {
+                
+                [self dealWithTemplateChange];
+                
+            }else{
+                
+                [self dealWithDataUpdate];
+            }
+            
+            NSString *policy = [self.sonicServer responseHeaderForKey:SonicHeaderKeyCacheOffline];
+            if ([policy isEqualToString:SonicHeaderValueCacheOfflineStore] || [policy isEqualToString:SonicHeaderValueCacheOfflineStoreRefresh] || [policy isEqualToString:SonicHeaderValueCacheOfflineRefresh]) {
+                [[SonicCache shareCache] removeServerDisableSonic:self.sessionID];
+            }
+            
+            if ([policy isEqualToString:SonicHeaderValueCacheOfflineRefresh] || [policy isEqualToString:SonicHeaderValueCacheOfflineDisable]) {
+                
+                if ([policy isEqualToString:SonicHeaderValueCacheOfflineRefresh]) {
+                    
+                    [[SonicCache shareCache]removeCacheBySessionID:self.sessionID];
+                }
+                
+                if ([policy isEqualToString:SonicHeaderValueCacheOfflineDisable]) {
+                    [[SonicCache shareCache] saveServerDisableSonicTimeNow:self.sessionID];
+                }
+            }
+            
+        }
+            break;
+        default:
+        {
+            
+        }
+            break;
+    }
+    
+    //use the call back to tell web page which mode used
+    if (self.webviewCallBack) {
+        NSDictionary *resultDict = [self sonicDiffResult];
+        if (resultDict) {
+            self.webviewCallBack(resultDict);
+        }
+    }
+    ...
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;由以上代码可以看到，首页会判断服务器返回response的状态码，304表示HTML的模板和数据均没有更新，直接使用缓存的数据。这个时候客服端不需要进行任何操作。&lt;/p&gt;
+
+&lt;p&gt;如果是200，则需要判断是模板更新还是数据更新。接下来我们具体看下数据更新和模板更新会做什么操作：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;数据更新函数代码如下：&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;   - (void)dealWithDataUpdate
+{
+    NSString *htmlString = nil;
+    if (self.sonicServer.isInLocalServerMode) {
+        NSDictionary *serverResult = [self.sonicServer sonicItemForCache];
+        htmlString = serverResult[kSonicHtmlFieldName];
+    }
+    
+    SonicCacheItem *cacheItem = [[SonicCache shareCache] updateWithJsonData:self.sonicServer.responseData withHtmlString:htmlString withResponseHeaders:self.sonicServer.response.allHeaderFields withUrl:self.url];
+    
+    if (cacheItem) {
+        
+        self.sonicStatusCode = SonicStatusCodeDataUpdate;
+        self.sonicStatusFinalCode = SonicStatusCodeDataUpdate;
+        self.localRefreshTime = cacheItem.lastRefreshTime;
+        self.cacheFileData = cacheItem.htmlData;
+        self.cacheResponseHeaders = cacheItem.cacheResponseHeaders;
+        
+        if (_diffData) {
+            [_diffData release];
+            _diffData = nil;
+        }
+        _diffData = [cacheItem.diffData copy];
+        
+        self.isDataFetchFinished = YES;
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;这里主要工作是取出缓存的html模板，然后将更新后的数据和html模板进行合并。生成新的cacheItem,随后更新本地数据。这里更新数据的格式是JSON格式，key为elementTag Id,value为tag显示的数据。可能有人会有疑惑，最新的数据怎么更新浏览器的显示。我们看到上面updateDidSuccess函数末尾有一段代码。调用了webViewCallback回调，这个操作就完成了将更新的数据通过native调用js的方式来更新数据。&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Html模板更新：&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;   - (void)dealWithTemplateChange
+{
+    NSDictionary *serverResult = [self.sonicServer sonicItemForCache];
+    SonicCacheItem *cacheItem = [[SonicCache shareCache] saveHtmlString:serverResult[kSonicHtmlFieldName] templateString:serverResult[kSonicTemplateFieldName] dynamicData:serverResult[kSonicDataFieldName] responseHeaders:self.sonicServer.response.allHeaderFields withUrl:self.url];//更新缓存
+    
+    if (cacheItem) {
+        
+        self.sonicStatusCode = SonicStatusCodeTemplateUpdate;
+        self.sonicStatusFinalCode = SonicStatusCodeTemplateUpdate;
+        self.localRefreshTime = cacheItem.lastRefreshTime;
+        self.cacheFileData = self.sonicServer.responseData;
+        self.cacheResponseHeaders = cacheItem.cacheResponseHeaders;
+        
+        self.isDataFetchFinished = YES;
+        
+        if (!self.didFinishCacheRead) {
+            return;
+        }
+        
+        NSString *opIdentifier  =  dispatchToMain(^{
+            NSString *policy = [self.sonicServer responseHeaderForKey:SonicHeaderKeyCacheOffline];
+            if ([policy isEqualToString:SonicHeaderValueCacheOfflineStoreRefresh] || [policy isEqualToString:SonicHeaderValueCacheOfflineRefresh]) {
+                if (self.delegate &amp;amp;&amp;amp; [self.delegate respondsToSelector:@selector(session:requireWebViewReload:)]) { //通知浏览器重新加载页面
+                    NSURLRequest *sonicRequest = [NSURLRequest requestWithURL:[NSURL URLWithString:self.url]];
+                    [self.delegate session:self requireWebViewReload:[SonicUtil sonicWebRequestWithSession:self withOrigin:sonicRequest]];
+                }
+            }
+        });
+        [self.mainQueueOperationIdentifiers addObject:opIdentifier];
+    }
+}
+
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;由于模板更新会更新整个网页结构，因此，避免不了需要重新刷新浏览器。首先会解析出返回htmlString中包含的模板和数据,然后分别进行存储，并更新本地变量。最后利用 &lt;code class=&quot;highlighter-rouge&quot;&gt;[self.delegate session:self requireWebViewReload:[SonicUtil sonicWebRequestWithSession:self withOrigin:sonicRequest]];&lt;/code&gt; 这句代码来通知浏览器刷新。&lt;/p&gt;
+
+&lt;p&gt;以上分析的是存在缓存，处理的结果，如果是第一次加载页面，那么就不会走这个策略。直接通知浏览器渲染并存储网页数据。比较简单，这里就不再赘述。&lt;/p&gt;
 
 </description>
         <pubDate>Thu, 14 Dec 2017 00:00:00 +0800</pubDate>
-        <link>http://localhost:4000/2017/12/Sonic-series1/</link>
-        <guid isPermaLink="true">http://localhost:4000/2017/12/Sonic-series1/</guid>
+        <link>http://localhost:4000/2017/12/Sonic-iOS/</link>
+        <guid isPermaLink="true">http://localhost:4000/2017/12/Sonic-iOS/</guid>
         
         
       </item>
