@@ -1,6 +1,6 @@
 ---
 layout: post
-title: iOS中并发问题导致的Data Race
+title: iOS中并发导致的Data Race问题
 date: 2018-1-8
 ---
 
