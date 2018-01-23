@@ -15,7 +15,7 @@ date: 2018-01-23
 ```
 
 然而，这时候会出现crash,具体错误堆栈信息如下：
-![](../images/posts/2018-01-23/crash_info.png)
+![](/images/posts/2018-01-23/crash_info.png)
 
 
 可以看到修改不变的Array导致的。也就是说CALayer的subLayers是不变的数组。推测是因为removeFromSuperlayer会修改self.layer.sublayers,而此时self.layer.sublayers调用了enumerateObjectsUsingBlock函数，也就是在遍历的时候出现了修改，所以会出现crash。
