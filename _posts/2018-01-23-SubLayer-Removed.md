@@ -41,3 +41,17 @@ date: 2018-01-23
 ```
 
 是不是很easy，😆
+
+**附注：**
+
+刚才同事给我说了另一个方案，就是对self.layer.sublayers数组逆序遍历进行修改，测试下也是可以的。贴上代码：
+
+```Objective-C
+NSArray<CALayer *> *subLayers = [self.view.layer sublayers];
+    [subLayers enumerateObjectsWithOptions:NSEnumerationReverse usingBlock:^(CALayer * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        if ([obj isKindOfClass:[CAShapeLayer class]]){
+            [obj removeFromSuperlayer];
+        }
+    }];
+```
+查了下原因，对数组逆序遍历时,遇到匹配的元素删除后，位置改变的是遍历过的元素，而没有遍历到的元素位置却没有改变，所以遍历能够正常进行。
