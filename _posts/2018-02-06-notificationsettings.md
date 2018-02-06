@@ -1,7 +1,7 @@
 ---
 layout: post
 title: iOS 10以上同步获取通知设置
-date: 2017-11-14 
+date: 2018-02-06
 ---
 最近在做一个关于UNUserNotification通知的需求，需要获取当前APP的通知权限，由于iOS10以上通知使用的API发生了很大的变化，在iOS 10以下获取通知设置(notification settings)代码如下：
 
